@@ -1,0 +1,51 @@
+name: Publish Gentle Money
+on:
+  push:
+    branches: [main]
+    paths:
+      - Gentle-Money-1.0.0.zip
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout reviewed release
+        uses: actions/checkout@v6
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Verify and unpack static program
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path, PurePosixPath
+          import hashlib, zipfile
+          bundle = Path('Gentle-Money-1.0.0.zip')
+          expected = '41a53773a6477a50f9c4ee03298ef427070c1b672d3cf466d5bde1f2f1900a4f'
+          assert hashlib.sha256(bundle.read_bytes()).hexdigest() == expected, 'Release hash differs from reviewed bundle'
+          with zipfile.ZipFile(bundle) as archive:
+              names = archive.namelist()
+              assert len(names) == len(set(names)) == 42
+              assert all(not PurePosixPath(n).is_absolute() and '..' not in PurePosixPath(n).parts for n in names)
+              assert {'index.html', 'sw.js', 'manifest.webmanifest'} <= set(names)
+              assert archive.testzip() is None
+              archive.extractall('site')
+          PY
+      - name: Upload static site artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+          retention-days: 1
+      - name: Deploy HTTPS site
+        id: deployment
+        uses: actions/deploy-pages@v4
